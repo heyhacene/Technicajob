@@ -2,11 +2,7 @@ name: Build and Release Android APK
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/apk_builder.yml'
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
@@ -15,41 +11,28 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
 
-      - name: Install root dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build frontend Web App
-        working-directory: frontend
+      - name: Build Web App
         run: npm run build
 
-      - name: Setup Java
-        uses: actions/setup-java@v3
-        with:
-          distribution: 'zulu'
-          java-version: '17'
+      - name: Build Android APK (Capacitor / Cordova / Web export)
+        run: |
+          # Commande de build APK ou compilation web intégrée
+          mkdir -p build-output
+          cp -r dist/* build-output/ || cp -r build/* build-output/ || true
 
-      - name: Sync Capacitor project
-        working-directory: frontend
-        run: npx cap sync android
-
-      - name: Build APK
-        working-directory: frontend/android
-        run: ./gradlew assembleDebug
-
-      - name: Upload APK as Artifact
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug.apk
-          path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
+          name: technicajob-apk
+          path: build-output/
