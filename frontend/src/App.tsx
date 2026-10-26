@@ -1,205 +1,539 @@
-import React, { useState, useEffect } from 'react';
-import './App.css';
+import React, { useState, useEffect, useMemo } from 'react';
 
-interface Job {
+// Structure normalisée d'une offre d'emploi
+export interface Job {
   id: string;
   title: string;
-  location: string;
-  contractType: string;
-  department: string;
-  publishedDate: string;
-  url: string;
+  company?: string;
+  location?: string;
+  contract?: string;
+  contractType?: string;
+  department?: string;
+  link?: string;
+  url?: string;
+  date?: string;
+  publishedDate?: string;
+  discovered_at?: string;
 }
 
-function App() {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [filteredJobs, setFilteredJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+const STORAGE_KEY_SEEN = 'ta_jobs_seen_ids_v1';
 
-  // États pour TOUS vos filtres
-  const [searchTerm, setSearchTerm] = useState('');
+export default function App() {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Filtres
+  const [keyword, setKeyword] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('ALL');
   const [selectedContract, setSelectedContract] = useState('ALL');
   const [selectedDepartment, setSelectedDepartment] = useState('ALL');
+  const [showOnlyNew, setShowOnlyNew] = useState(false);
 
-  // État pour les nouvelles offres détectées
-  const [newJobsCount, setNewJobsCount] = useState(0);
+  // Identifiants des offres déjà vues
+  const [seenIds, setSeenIds] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_SEEN);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
 
-  // Chargement des offres (depuis votre fichier jobs.json synchronisé)
+  // Chargement des données jobs.json
   useEffect(() => {
-    fetch('/data/jobs.json')
-      .then((res) => res.json())
-      .then((data: Job[]) => {
-        setJobs(data);
-        setFilteredJobs(data);
-        setLoading(false);
+    async function loadJobs() {
+      try {
+        setLoading(true);
+        setError(null);
+        // Tente de charger jobs.json
+        const res = await fetch('./jobs.json', { cache: 'no-cache' });
+        if (!res.ok) {
+          throw new Error(`Erreur HTTP: ${res.status}`);
+        }
+        const data = await res.json();
 
-        // Vérification des nouveautés par rapport à la dernière visite
-        const lastSeenIds = JSON.parse(localStorage.getItem('seen_jobs') || '[]');
-        if (lastSeenIds.length > 0) {
-          const fresh = data.filter((job) => !lastSeenIds.includes(job.id));
-          setNewJobsCount(fresh.length);
+        let rawList: any[] = [];
+        if (Array.isArray(data)) {
+          rawList = data;
+        } else if (data && typeof data === 'object') {
+          // Gère le cas où jobs.json est un dictionnaire indexé par ID
+          rawList = Object.values(data);
         }
 
-        // Sauvegarde des IDs actuels comme vus après un court délai ou clic
-        const allIds = data.map((j) => j.id);
-        localStorage.setItem('seen_jobs', JSON.stringify(allIds));
-      })
-      .catch((err) => {
-        console.error('Erreur chargement offres:', err);
+        // Normalisation des champs pour compatibilité totale
+        const normalized: Job[] = rawList.map((item: any) => {
+          const loc = item.location || item.site || '';
+          const contract = item.contract || item.contractType || '';
+          const dept =
+            item.department ||
+            item.domain ||
+            item.service ||
+            (loc.includes('Saclay') ? 'Ingénierie & Études' : 'Opérations & Projets');
+
+          return {
+            id: String(item.id || item.link || Math.random()),
+            title: item.title || 'Offre sans titre',
+            company: item.company || 'TechnicAtome',
+            location: loc,
+            contract: contract,
+            contractType: contract,
+            department: dept,
+            link: item.link || item.url || '#',
+            url: item.url || item.link || '#',
+            date: item.date || item.publishedDate || 'Récemment',
+            publishedDate: item.publishedDate || item.date || 'Récemment',
+            discovered_at: item.discovered_at,
+          };
+        });
+
+        setJobs(normalized);
+      } catch (err: any) {
+        setError(err.message || 'Impossible de récupérer les offres.');
+      } finally {
         setLoading(false);
-      });
+      }
+    }
+
+    loadJobs();
   }, []);
 
-  // Application de TOUS les filtres simultanément
+  // Persistance localStorage
   useEffect(() => {
-    let result = jobs;
-
-    // Filtre par mot-clé (titre)
-    if (searchTerm.trim() !== '') {
-      result = result.filter((job) =>
-        job.title.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+    try {
+      localStorage.setItem(STORAGE_KEY_SEEN, JSON.stringify(seenIds));
+    } catch (e) {
+      console.error('Erreur sauvegarde localStorage:', e);
     }
+  }, [seenIds]);
 
-    // Filtre par Localisation
-    if (selectedLocation !== 'ALL') {
-      result = result.filter((job) => job.location === selectedLocation);
+  // Options déduites pour les listes déroulantes
+  const locations = useMemo(() => {
+    const set = new Set(jobs.map((j) => j.location).filter(Boolean));
+    return Array.from(set).sort();
+  }, [jobs]);
+
+  const contracts = useMemo(() => {
+    const set = new Set(jobs.map((j) => j.contractType).filter(Boolean));
+    return Array.from(set).sort();
+  }, [jobs]);
+
+  const departments = useMemo(() => {
+    const set = new Set(jobs.map((j) => j.department).filter(Boolean));
+    return Array.from(set).sort();
+  }, [jobs]);
+
+  // Actions de marquage
+  const markAsSeen = (id: string) => {
+    if (!seenIds.includes(id)) {
+      setSeenIds((prev) => [...prev, id]);
     }
+  };
 
-    // Filtre par Type de Contrat
-    if (selectedContract !== 'ALL') {
-      result = result.filter((job) => job.contractType === selectedContract);
-    }
+  const markAllAsSeen = () => {
+    const allCurrentIds = jobs.map((j) => j.id);
+    const merged = Array.from(new Set([...seenIds, ...allCurrentIds]));
+    setSeenIds(merged);
+  };
 
-    // Filtre par Département / Service
-    if (selectedDepartment !== 'ALL') {
-      result = result.filter((job) => job.department === selectedDepartment);
-    }
+  // Filtrage combiné
+  const filteredJobs = useMemo(() => {
+    const q = keyword.trim().toLowerCase();
 
-    setFilteredJobs(result);
-  }, [searchTerm, selectedLocation, selectedContract, selectedDepartment, jobs]);
+    return jobs.filter((job) => {
+      const isUnread = !seenIds.includes(job.id);
 
-  // Extraction des listes uniques pour alimenter les menus déroulants de filtres
-  const locations = Array.from(new Set(jobs.map((j) => j.location))).filter(Boolean);
-  const contracts = Array.from(new Set(jobs.map((j) => j.contractType))).filter(Boolean);
-  const departments = Array.from(new Set(jobs.map((j) => j.department))).filter(Boolean);
+      if (showOnlyNew && !isUnread) return false;
+      if (selectedLocation !== 'ALL' && job.location !== selectedLocation) return false;
+      if (selectedContract !== 'ALL' && job.contractType !== selectedContract) return false;
+      if (selectedDepartment !== 'ALL' && job.department !== selectedDepartment) return false;
 
-  if (loading) {
-    <div style={{ padding: '20px', textAlign: 'center', color: '#fff' }}>
-      Chargement des offres TechnicAtome...
-    </div>;
-  }
+      if (q) {
+        const titleMatch = job.title?.toLowerCase().includes(q);
+        const locMatch = job.location?.toLowerCase().includes(q);
+        const deptMatch = job.department?.toLowerCase().includes(q);
+        return titleMatch || locMatch || deptMatch;
+      }
+
+      return true;
+    });
+  }, [jobs, keyword, selectedLocation, selectedContract, selectedDepartment, showOnlyNew, seenIds]);
+
+  const unreadCount = useMemo(() => {
+    return jobs.filter((job) => !seenIds.includes(job.id)).length;
+  }, [jobs, seenIds]);
 
   return (
-    <div style={{ padding: '16px', maxWidth: '600px', margin: '0 auto', fontFamily: 'sans-serif', color: '#333' }}>
-      <header style={{ marginBottom: '20px', textAlign: 'center' }}>
-        <h1 style={{ fontSize: '22px', color: '#004a99', marginBottom: '8px' }}>
-          TechnicAtome Job Alert
-        </h1>
-        {newJobsCount > 0 && (
-          <div style={{ background: '#e6f4ea', color: '#137333', padding: '8px', borderRadius: '6px', fontSize: '14px', marginBottom: '10px' }}>
-            🔔 <strong>{newJobsCount} nouvelle(s) offre(s)</strong> depuis votre dernière visite !
+    <div style={styles.container}>
+      {/* En-tête de l'application */}
+      <header style={styles.header}>
+        <h1 style={styles.appTitle}>Veille Offres TechnicAtome</h1>
+        <p style={styles.subtitle}>Suivi en temps réel des opportunités de recrutement</p>
+
+        {/* Bannière compteur de nouveautés non lues */}
+        <div style={styles.banner}>
+          <div style={styles.bannerInfo}>
+            <span style={styles.bannerIcon}>🔔</span>
+            <span>
+              <strong>{unreadCount}</strong> nouvelle(s) offre(s) non lue(s) sur{' '}
+              <strong>{jobs.length}</strong> disponibles
+            </span>
           </div>
-        )}
-        <p style={{ fontSize: '13px', color: '#666' }}>
-          {filteredJobs.length} offre(s) trouvée(s) sur {jobs.length} totales
-        </p>
+          {unreadCount > 0 && (
+            <button onClick={markAllAsSeen} style={styles.markAllBtn}>
+              Tout marquer comme lu
+            </button>
+          )}
+        </div>
       </header>
 
-      {/* Bloc de TOUS les filtres */}
-      <div style={{ background: '#f8f9fa', padding: '12px', borderRadius: '8px', marginBottom: '16px', border: '1px solid #dee2e6' }}>
-        <h3 style={{ fontSize: '15px', marginTop: '0', marginBottom: '10px' }}>Filtres de recherche</h3>
-
-        {/* Recherche par mot-clé */}
-        <div style={{ marginBottom: '10px' }}>
+      {/* Barre de filtres de recherche */}
+      <section style={styles.filtersCard}>
+        <div style={styles.searchRow}>
           <input
             type="text"
-            placeholder="Rechercher par mot-clé (ex: Sûreté, Projets...)"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+            placeholder="Rechercher par mot-clé (ex: sûreté, mécanique, chef de projet...)"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            style={styles.inputSearch}
           />
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {/* Filtre Localisation */}
-          <div style={{ flex: '1', minWidth: '45%' }}>
-            <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Localisation</label>
+        <div style={styles.dropdownGrid}>
+          <div>
+            <label style={styles.filterLabel}>Localisation</label>
             <select
               value={selectedLocation}
               onChange={(e) => setSelectedLocation(e.target.value)}
-              style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}
+              style={styles.select}
             >
               <option value="ALL">Toutes les localisations</option>
-              {locations.map((loc, idx) => (
-                <option key={idx} value={loc}>{loc}</option>
+              {locations.map((loc) => (
+                <option key={loc} value={loc}>
+                  {loc}
+                </option>
               ))}
             </select>
           </div>
 
-          {/* Filtre Type de Contrat */}
-          <div style={{ flex: '1', minWidth: '45%' }}>
-            <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Contrat</label>
+          <div>
+            <label style={styles.filterLabel}>Type de contrat</label>
             <select
               value={selectedContract}
               onChange={(e) => setSelectedContract(e.target.value)}
-              style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}
+              style={styles.select}
             >
               <option value="ALL">Tous les contrats</option>
-              {contracts.map((con, idx) => (
-                <option key={idx} value={con}>{con}</option>
+              {contracts.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
               ))}
             </select>
           </div>
 
-          {/* Filtre Département / Service */}
-          <div style={{ flex: '1', minWidth: '100%' }}>
-            <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Domaine / Département</label>
+          <div>
+            <label style={styles.filterLabel}>Département / Domaine</label>
             <select
               value={selectedDepartment}
               onChange={(e) => setSelectedDepartment(e.target.value)}
-              style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}
+              style={styles.select}
             >
               <option value="ALL">Tous les départements</option>
-              {departments.map((dep, idx) => (
-                <option key={idx} value={dep}>{dep}</option>
+              {departments.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
               ))}
             </select>
           </div>
         </div>
-      </div>
 
-      {/* Liste des offres filtrées */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {filteredJobs.length === 0 ? (
-          <p style={{ textAlign: 'center', color: '#777', padding: '20px' }}>Aucune offre ne correspond à vos filtres actuels.</p>
-        ) : (
-          filteredJobs.map((job) => (
-            <div key={job.id} style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px', padding: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-              <h2 style={{ fontSize: '15px', margin: '0 0 6px 0', color: '#004a99' }}>{job.title}</h2>
-              <div style={{ fontSize: '12px', color: '#555', display: 'flex', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                <span>📍 {job.location}</span>
-                <span>📄 {job.contractType}</span>
-                <span>🏷️ {job.department}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
-                <span style={{ fontSize: '11px', color: '#888' }}>Publié le : {job.publishedDate}</span>
-                <a
-                  href={job.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ background: '#004a99', color: '#fff', padding: '6px 12px', borderRadius: '4px', textDecoration: 'none', fontSize: '12px', fontWeight: 'bold' }}
-                >
-                  Voir l'offre →
-                </a>
-              </div>
+        <div style={styles.quickOptionsRow}>
+          <label style={styles.checkboxOption}>
+            <input
+              type="checkbox"
+              checked={showOnlyNew}
+              onChange={(e) => setShowOnlyNew(e.target.checked)}
+            />
+            <span>Afficher uniquement les nouvelles offres non lues</span>
+          </label>
+          <span style={styles.resultCount}>
+            {filteredJobs.length} résultat(s) affiché(s)
+          </span>
+        </div>
+      </section>
+
+      {/* Messages d'état */}
+      {loading && <div style={styles.stateNotice}>Chargement des offres en cours...</div>}
+      {error && <div style={{ ...styles.stateNotice, color: '#dc2626' }}>{error}</div>}
+
+      {/* Liste des offres */}
+      {!loading && !error && (
+        <main style={styles.jobList}>
+          {filteredJobs.length === 0 ? (
+            <div style={styles.stateNotice}>
+              Aucune offre ne correspond aux critères sélectionnés.
             </div>
-          ))
-        )}
-      </div>
+          ) : (
+            filteredJobs.map((job) => {
+              const isUnread = !seenIds.includes(job.id);
+
+              return (
+                <article
+                  key={job.id}
+                  style={{
+                    ...styles.jobCard,
+                    borderColor: isUnread ? '#0284c7' : '#e2e8f0',
+                    backgroundColor: isUnread ? '#f0f9ff' : '#ffffff',
+                  }}
+                  onClick={() => markAsSeen(job.id)}
+                >
+                  <div style={styles.jobHeader}>
+                    <div style={styles.tagsContainer}>
+                      {isUnread && <span style={styles.badgeNew}>NOUVELLE</span>}
+                      {job.contractType && (
+                        <span style={styles.tag}>{job.contractType}</span>
+                      )}
+                      {job.location && <span style={styles.tag}>{job.location}</span>}
+                      {job.department && (
+                        <span style={{ ...styles.tag, backgroundColor: '#f1f5f9' }}>
+                          {job.department}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <h2 style={styles.jobTitle}>{job.title}</h2>
+
+                  <div style={styles.jobFooter}>
+                    <span style={styles.jobDate}>
+                      {job.date ? `Publié : ${job.date}` : `Société : ${job.company}`}
+                    </span>
+                    <a
+                      href={job.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={styles.viewOfferBtn}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        markAsSeen(job.id);
+                      }}
+                    >
+                      Consulter l'offre &rarr;
+                    </a>
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </main>
+      )}
     </div>
   );
 }
 
-export default App;
+const styles: Record<string, React.CSSProperties> = {
+  container: {
+    maxWidth: '780px',
+    margin: '0 auto',
+    padding: '16px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    color: '#1e293b',
+    minHeight: '100vh',
+    backgroundColor: '#f8fafc',
+  },
+  header: {
+    marginBottom: '16px',
+  },
+  appTitle: {
+    margin: '0 0 4px 0',
+    fontSize: '1.4rem',
+    fontWeight: '800',
+    color: '#0f172a',
+    textAlign: 'center',
+  },
+  subtitle: {
+    margin: '0 0 14px 0',
+    fontSize: '0.9rem',
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  banner: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '10px',
+    backgroundColor: '#eff6ff',
+    border: '1px solid #bfdbfe',
+    borderRadius: '10px',
+    padding: '12px 16px',
+  },
+  bannerInfo: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '0.9rem',
+    color: '#1e40af',
+  },
+  bannerIcon: {
+    fontSize: '1.2rem',
+  },
+  markAllBtn: {
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+    border: 'none',
+    padding: '7px 14px',
+    borderRadius: '6px',
+    fontSize: '0.82rem',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  },
+  filtersCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: '10px',
+    padding: '16px',
+    border: '1px solid #e2e8f0',
+    marginBottom: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  searchRow: {
+    width: '100%',
+  },
+  inputSearch: {
+    width: '100%',
+    padding: '10px 14px',
+    borderRadius: '8px',
+    border: '1px solid #cbd5e1',
+    fontSize: '0.95rem',
+    boxSizing: 'border-box',
+    outline: 'none',
+  },
+  dropdownGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+    gap: '10px',
+  },
+  filterLabel: {
+    display: 'block',
+    fontSize: '0.78rem',
+    fontWeight: '700',
+    color: '#475569',
+    marginBottom: '4px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.03em',
+  },
+  select: {
+    width: '100%',
+    padding: '8px 10px',
+    borderRadius: '6px',
+    border: '1px solid #cbd5e1',
+    backgroundColor: '#ffffff',
+    fontSize: '0.88rem',
+    color: '#334155',
+    outline: 'none',
+  },
+  quickOptionsRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '8px',
+    paddingTop: '6px',
+    borderTop: '1px solid #f1f5f9',
+  },
+  checkboxOption: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '0.88rem',
+    cursor: 'pointer',
+    color: '#334155',
+    userSelect: 'none',
+  },
+  resultCount: {
+    fontSize: '0.82rem',
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  jobList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  jobCard: {
+    padding: '16px',
+    borderRadius: '10px',
+    borderWidth: '1.5px',
+    borderStyle: 'solid',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+    cursor: 'pointer',
+    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+  },
+  jobHeader: {
+    marginBottom: '8px',
+  },
+  tagsContainer: {
+    display: 'flex',
+    gap: '6px',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  badgeNew: {
+    backgroundColor: '#0284c7',
+    color: '#ffffff',
+    fontSize: '0.7rem',
+    fontWeight: '800',
+    padding: '3px 8px',
+    borderRadius: '4px',
+    letterSpacing: '0.04em',
+  },
+  tag: {
+    backgroundColor: '#e2e8f0',
+    color: '#334155',
+    fontSize: '0.75rem',
+    fontWeight: '500',
+    padding: '3px 8px',
+    borderRadius: '4px',
+  },
+  jobTitle: {
+    margin: '4px 0 12px 0',
+    fontSize: '1.08rem',
+    fontWeight: '700',
+    color: '#0f172a',
+    lineHeight: '1.35',
+  },
+  jobFooter: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '8px',
+    paddingTop: '8px',
+    borderTop: '1px solid rgba(0,0,0,0.06)',
+  },
+  jobDate: {
+    fontSize: '0.8rem',
+    color: '#64748b',
+  },
+  viewOfferBtn: {
+    backgroundColor: '#0284c7',
+    color: '#ffffff',
+    textDecoration: 'none',
+    padding: '6px 12px',
+    borderRadius: '6px',
+    fontSize: '0.82rem',
+    fontWeight: '600',
+  },
+  stateNotice: {
+    textAlign: 'center',
+    padding: '32px 16px',
+    color: '#64748b',
+    fontSize: '0.95rem',
+  },
+};
