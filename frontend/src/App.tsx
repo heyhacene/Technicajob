@@ -46,12 +46,26 @@ export default function App() {
       try {
         setLoading(true);
         setError(null);
-        // Tente de charger jobs.json
-        const res = await fetch('./jobs.json', { cache: 'no-cache' });
-        if (!res.ok) {
-          throw new Error(`Erreur HTTP: ${res.status}`);
+        let data: any = null;
+        try {
+          const res = await fetch('./jobs.json', { cache: 'no-cache' });
+          if (res.ok) {
+            data = await res.json();
+          }
+        } catch (e) {
+          console.warn('Local jobs.json fetch failed, trying fallback...', e);
         }
-        const data = await res.json();
+
+        if (!data) {
+          const fallbackRes = await fetch(
+            'https://raw.githubusercontent.com/heyhacene/Technicajob/main/frontend/public/jobs.json'
+          );
+          if (fallbackRes.ok) {
+            data = await fallbackRes.json();
+          } else {
+            throw new Error(`Erreur HTTP: ${fallbackRes.status}`);
+          }
+        }
 
         let rawList: any[] = [];
         if (Array.isArray(data)) {
