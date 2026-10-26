@@ -37,5 +37,7 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/jobs.json
+          # Copie automatique vers le dossier public du frontend pour Vercel
+          cp data/jobs.json frontend/public/jobs.json
+          git add data/jobs.json frontend/public/jobs.json
           git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update jobs data [skip ci]" && git push)
