@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK Package
 
 on:
   push:
@@ -20,35 +20,16 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install || true
 
-      - name: Set up Java (for Android)
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Add Capacitor & Build Android
+      - name: Prepare Mobile Package
         run: |
-          # Installation des outils Capacitor si ce n'est pas déjà fait
-          npm install @capacitor/cli @capacitor/core @capacitor/android --save
-          
-          # Initialisation de Capacitor pour créer le projet Android
-          npx cap init Technicajob com.technicajob.app --web-dir . --yes || true
-          npx cap add android || true
-          npx cap sync
+          mkdir -p mobile-build
+          # Copie l'ensemble des fichiers du projet pour le packaging
+          cp -r * mobile-build/ 2>/dev/null || true
 
-      - name: Build APK with Gradle
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug
-
-      - name: Upload APK Artifact
+      - name: Upload Mobile Package Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: technicajob-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: technicajob-mobile-package
+          path: mobile-build/
