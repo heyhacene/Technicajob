@@ -18,7 +18,7 @@ export interface Job {
 
 export interface UserCriteria {
   keywords: string;
-  location: string;
+  locations: string[]; // Choix multiple pour les localisations
   contract: string;
   department: string;
   notificationsEnabled: boolean;
@@ -26,12 +26,12 @@ export interface UserCriteria {
 }
 
 const STORAGE_KEY_SEEN = 'ta_jobs_seen_ids_v2';
-const STORAGE_KEY_CRITERIA = 'ta_user_alert_criteria_v1';
-const STORAGE_KEY_LAST_NOTIFIED = 'ta_last_notified_job_ids_v1';
+const STORAGE_KEY_CRITERIA = 'ta_user_alert_criteria_v2';
+const STORAGE_KEY_LAST_NOTIFIED = 'ta_last_notified_job_ids_v2';
 
 const DEFAULT_CRITERIA: UserCriteria = {
   keywords: '',
-  location: 'ALL',
+  locations: [], // Tableau vide = Toutes les localisations
   contract: 'ALL',
   department: 'ALL',
   notificationsEnabled: true,
@@ -48,7 +48,15 @@ export default function App() {
   const [criteria, setCriteria] = useState<UserCriteria>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_CRITERIA);
-      return stored ? { ...DEFAULT_CRITERIA, ...JSON.parse(stored) } : DEFAULT_CRITERIA;
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // Migration rétrocompatible si l'ancien format 'location' était utilisé
+        if (parsed.location && !parsed.locations) {
+          parsed.locations = parsed.location === 'ALL' ? [] : [parsed.location];
+        }
+        return { ...DEFAULT_CRITERIA, ...parsed };
+      }
+      return DEFAULT_CRITERIA;
     } catch {
       return DEFAULT_CRITERIA;
     }
@@ -68,7 +76,7 @@ export default function App() {
     }
   });
 
-  // Historique des offres déjà notifiées pour ne pas notifier en boucle
+  // Historique des offres déjà notifiées
   const [notifiedIds, setNotifiedIds] = useState<string[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_LAST_NOTIFIED);
@@ -78,7 +86,6 @@ export default function App() {
     }
   });
 
-  // Sauvegarde des critères dès modification
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_CRITERIA, JSON.stringify(criteria));
   }, [criteria]);
@@ -91,7 +98,7 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_LAST_NOTIFIED, JSON.stringify(notifiedIds));
   }, [notifiedIds]);
 
-  // Initialisation et demande de permission des notifications Android
+  // Initialisation et permission notifications Android
   useEffect(() => {
     async function initNotifications() {
       try {
@@ -102,13 +109,13 @@ export default function App() {
           setNotificationPermission(req.display);
         }
       } catch (e) {
-        console.warn('LocalNotifications non supporté sur ce navigateur/plateforme:', e);
+        console.warn('LocalNotifications non supporté :', e);
       }
     }
     initNotifications();
   }, []);
 
-  // Détection et notification système des nouvelles offres
+  // Déclencher une notification push
   const triggerNotificationForNewJobs = async (matchingNewJobs: Job[]) => {
     if (!criteria.notificationsEnabled || matchingNewJobs.length === 0) return;
 
@@ -139,15 +146,14 @@ export default function App() {
         ],
       });
 
-      // Mémoriser ces IDs comme notifiés
       const newNotified = Array.from(new Set([...notifiedIds, ...matchingNewJobs.map((j) => j.id)]));
       setNotifiedIds(newNotified);
     } catch (e) {
-      console.warn('Erreur lors de l’envoi de la notification :', e);
+      console.warn('Erreur notification :', e);
     }
   };
 
-  // Chargement et rafraîchissement des offres
+  // Chargement des données
   const fetchJobsData = async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
@@ -157,7 +163,7 @@ export default function App() {
         const res = await fetch('./jobs.json', { cache: 'no-cache' });
         if (res.ok) data = await res.json();
       } catch (e) {
-        console.warn('Erreur chargement local jobs.json:', e);
+        console.warn('Erreur fetch local jobs.json:', e);
       }
 
       if (!data) {
@@ -199,24 +205,21 @@ export default function App() {
       setJobs(normalized);
       setLastChecked(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
 
-      // Vérifier les nouvelles offres qui correspondent aux critères
+      // Vérifier si de nouvelles offres correspondent aux critères
       const freshMatching = normalized.filter((job) => {
         const isAlreadyNotified = notifiedIds.includes(job.id);
         const isSeen = seenIds.includes(job.id);
         if (isAlreadyNotified || isSeen) return false;
-
-        // Test de correspondance avec les critères
         return testJobMatchesCriteria(job, criteria);
       });
 
       if (freshMatching.length > 0 && notifiedIds.length > 0) {
         triggerNotificationForNewJobs(freshMatching);
       } else if (notifiedIds.length === 0 && normalized.length > 0) {
-        // Premier lancement : on initialise les IDs connus sans spammer
         setNotifiedIds(normalized.map((j) => j.id));
       }
     } catch (err: any) {
-      setError(err.message || 'Impossible de vérifier les offres.');
+      setError(err.message || 'Impossible de charger les offres.');
     } finally {
       if (!silent) setLoading(false);
     }
@@ -224,15 +227,21 @@ export default function App() {
 
   useEffect(() => {
     fetchJobsData();
-    // Rafraîchissement périodique en tâche de fond dans l'app
     const intervalMs = Math.max(criteria.checkIntervalMinutes, 5) * 60 * 1000;
     const timer = setInterval(() => fetchJobsData(true), intervalMs);
     return () => clearInterval(timer);
   }, [criteria.checkIntervalMinutes]);
 
-  // Fonction de test de correspondance
+  // Logique de test de correspondance avec multi-sélection des localisations
   function testJobMatchesCriteria(job: Job, crit: UserCriteria) {
-    if (crit.location !== 'ALL' && job.location !== crit.location) return false;
+    // Si des localisations sont sélectionnées, le job doit être dans l'une d'elles
+    if (crit.locations && crit.locations.length > 0) {
+      const matchLoc = crit.locations.some(
+        (loc) => loc.toLowerCase() === (job.location || '').toLowerCase()
+      );
+      if (!matchLoc) return false;
+    }
+
     if (crit.contract !== 'ALL' && job.contractType !== crit.contract) return false;
     if (crit.department !== 'ALL' && job.department !== crit.department) return false;
 
@@ -246,7 +255,22 @@ export default function App() {
     return true;
   }
 
-  // Listes dynamiques pour les sélecteurs
+  // Toggle d'une localisation dans les critères
+  const toggleLocationCriteria = (loc: string) => {
+    setCriteria((prev) => {
+      const current = prev.locations || [];
+      const next = current.includes(loc)
+        ? current.filter((l) => l !== loc)
+        : [...current, loc];
+      return { ...prev, locations: next };
+    });
+  };
+
+  const selectAllLocations = () => {
+    setCriteria((prev) => ({ ...prev, locations: [] }));
+  };
+
+  // Extraction unique des données
   const locations = useMemo(() => {
     return Array.from(new Set(jobs.map((j) => j.location).filter(Boolean))).sort();
   }, [jobs]);
@@ -259,12 +283,10 @@ export default function App() {
     return Array.from(new Set(jobs.map((j) => j.department).filter(Boolean))).sort();
   }, [jobs]);
 
-  // Offres correspondant aux critères enregistrés
   const matchingJobs = useMemo(() => {
     return jobs.filter((j) => testJobMatchesCriteria(j, criteria));
   }, [jobs, criteria]);
 
-  // Nouvelles offres non lues parmi les critères
   const newMatchesCount = useMemo(() => {
     return matchingJobs.filter((j) => !seenIds.includes(j.id)).length;
   }, [matchingJobs, seenIds]);
@@ -280,12 +302,11 @@ export default function App() {
     setSeenIds((prev) => Array.from(new Set([...prev, ...ids])));
   };
 
-  // Liste des offres à afficher selon l'onglet actif
   const displayedJobs = activeTab === 'matches' ? matchingJobs : jobs;
 
   return (
     <div style={styles.container}>
-      {/* En-tête avec statut de la veille */}
+      {/* En-tête */}
       <header style={styles.header}>
         <div style={styles.headerTop}>
           <div>
@@ -305,7 +326,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* Panneau dépliable de configuration des critères sauvegardés */}
+        {/* Panneau de configuration avec CHOIX MULTIPLE des localisations */}
         {isCriteriaOpen && (
           <div style={styles.criteriaPanel}>
             <div style={styles.criteriaPanelHeader}>
@@ -313,38 +334,68 @@ export default function App() {
               <span style={styles.savedBadge}>✓ Sauvegarde automatique</span>
             </div>
             <p style={styles.criteriaDesc}>
-              L'application enregistre ces préférences et vous enverra une alerte dès qu'une
-              nouvelle offre publiée correspondra à ce profil.
+              Sélectionnez une ou plusieurs localisations (ex: Aix-en-Provence ET Cadarache).
+              L'application vous enverra une alerte dès qu'une offre y est publiée.
             </p>
 
+            {/* Mots-clés */}
             <div style={styles.formGroup}>
               <label style={styles.label}>Mots-clés recherchés (titre, spécialité)</label>
               <input
                 type="text"
-                placeholder="Ex: Sûreté, Mécanique, Projets, Cyber..."
+                placeholder="Ex: Sûreté, Mécanique, Chef de projet, Cyber..."
                 value={criteria.keywords}
                 onChange={(e) => setCriteria({ ...criteria, keywords: e.target.value })}
                 style={styles.input}
               />
             </div>
 
-            <div style={styles.row}>
-              <div style={{ flex: 1 }}>
-                <label style={styles.label}>Localisation</label>
-                <select
-                  value={criteria.location}
-                  onChange={(e) => setCriteria({ ...criteria, location: e.target.value })}
-                  style={styles.select}
+            {/* CHOIX MULTIPLE DES LOCALISATIONS */}
+            <div style={styles.formGroup}>
+              <div style={styles.labelWithAction}>
+                <label style={styles.label}>Localisations surveillées (Choix multiples)</label>
+                <button
+                  type="button"
+                  onClick={selectAllLocations}
+                  style={styles.textLinkBtn}
                 >
-                  <option value="ALL">Toutes les localisations</option>
-                  {locations.map((loc) => (
-                    <option key={loc} value={loc}>
-                      {loc}
-                    </option>
-                  ))}
-                </select>
+                  {(!criteria.locations || criteria.locations.length === 0)
+                    ? '✓ Tous les sites sélectionnés'
+                    : 'Sélectionner tous les sites'}
+                </button>
               </div>
 
+              <div style={styles.pillsContainer}>
+                {locations.map((loc) => {
+                  const isSelected = criteria.locations && criteria.locations.includes(loc);
+                  return (
+                    <button
+                      key={loc}
+                      type="button"
+                      onClick={() => toggleLocationCriteria(loc)}
+                      style={{
+                        ...styles.pillBtn,
+                        backgroundColor: isSelected ? '#004a99' : '#f1f5f9',
+                        color: isSelected ? '#ffffff' : '#334155',
+                        borderColor: isSelected ? '#003366' : '#cbd5e1',
+                        fontWeight: isSelected ? '700' : '500',
+                      }}
+                    >
+                      {isSelected ? '✓ ' : '+ '}
+                      {loc}
+                    </button>
+                  );
+                })}
+              </div>
+              <p style={styles.fieldHint}>
+                {(!criteria.locations || criteria.locations.length === 0)
+                  ? '🌍 Vous surveillez toutes les implantations TechnicAtome.'
+                  : `📍 ${criteria.locations.length} site(s) sélectionné(s) : ${criteria.locations.join(', ')}`}
+              </p>
+            </div>
+
+            {/* Contrat et Département */}
+            <div style={styles.row}>
               <div style={{ flex: 1 }}>
                 <label style={styles.label}>Type de contrat</label>
                 <select
@@ -360,24 +411,25 @@ export default function App() {
                   ))}
                 </select>
               </div>
+
+              <div style={{ flex: 1 }}>
+                <label style={styles.label}>Département / Domaine</label>
+                <select
+                  value={criteria.department}
+                  onChange={(e) => setCriteria({ ...criteria, department: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="ALL">Tous les départements</option>
+                  {departments.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Domaine / Département</label>
-              <select
-                value={criteria.department}
-                onChange={(e) => setCriteria({ ...criteria, department: e.target.value })}
-                style={styles.select}
-              >
-                <option value="ALL">Tous les départements</option>
-                {departments.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </div>
-
+            {/* Notification Toggle */}
             <div style={styles.notificationsToggleBox}>
               <label style={styles.checkboxLabel}>
                 <input
@@ -399,7 +451,7 @@ export default function App() {
               </span>
             </div>
 
-            <div style={{ textAlign: 'right', marginTop: '10px' }}>
+            <div style={{ textAlign: 'right', marginTop: '14px' }}>
               <button
                 onClick={() => {
                   setIsCriteriaOpen(false);
@@ -407,7 +459,7 @@ export default function App() {
                 }}
                 style={styles.closeCriteriaBtn}
               >
-                Enregistrer & Appliquer
+                Valider mes critères
               </button>
             </div>
           </div>
@@ -424,7 +476,9 @@ export default function App() {
               <div style={styles.activeCriteriaSummary}>
                 Filtre actif :{' '}
                 {criteria.keywords ? `"${criteria.keywords}" • ` : ''}
-                {criteria.location !== 'ALL' ? `${criteria.location} • ` : 'Tous sites • '}
+                {(!criteria.locations || criteria.locations.length === 0)
+                  ? 'Tous sites • '
+                  : `📍 ${criteria.locations.join(' + ')} • `}
                 {criteria.contract !== 'ALL' ? `${criteria.contract} • ` : 'Tous contrats • '}
                 {criteria.department !== 'ALL' ? criteria.department : 'Tous départements'}
               </div>
@@ -484,8 +538,7 @@ export default function App() {
                 Aucune offre ne correspond à vos critères actuels.
               </p>
               <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
-                Vous pouvez élargir vos critères en cliquant sur le bouton ⚙️ <strong>Mes Critères</strong> ci-dessus.
-                Dès qu'une offre compatible sera publiée, vous recevrez une alerte.
+                Vous pouvez ajuster vos localisations ou vos mots-clés dans ⚙️ <strong>Mes Critères</strong>.
               </p>
             </div>
           ) : (
@@ -508,7 +561,7 @@ export default function App() {
                       {isUnread && <span style={styles.newBadge}>NOUVELLE</span>}
                       {matchesUser && <span style={styles.matchBadge}>CORRESPOND À VOS CRITÈRES</span>}
                       {job.contractType && <span style={styles.tag}>{job.contractType}</span>}
-                      {job.location && <span style={styles.tag}>{job.location}</span>}
+                      {job.location && <span style={styles.tagLoc}>📍 {job.location}</span>}
                     </div>
                   </div>
 
@@ -517,7 +570,7 @@ export default function App() {
 
                   <div style={styles.jobBottomRow}>
                     <span style={styles.jobDate}>
-                      {job.date ? `Publié : ${job.date}` : `Découvert le ${new Date().toLocaleDateString()}`}
+                      {job.date ? `Publié : ${job.date}` : `Découvert récemment`}
                     </span>
                     <a
                       href={job.url}
@@ -617,7 +670,41 @@ const styles: Record<string, React.CSSProperties> = {
     margin: '0 0 14px 0',
   },
   formGroup: {
-    marginBottom: '10px',
+    marginBottom: '14px',
+  },
+  labelWithAction: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '6px',
+  },
+  textLinkBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#0284c7',
+    fontSize: '0.75rem',
+    fontWeight: '600',
+    cursor: 'pointer',
+    padding: 0,
+  },
+  pillsContainer: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px',
+    marginTop: '4px',
+  },
+  pillBtn: {
+    padding: '6px 12px',
+    borderRadius: '20px',
+    border: '1px solid #cbd5e1',
+    fontSize: '0.82rem',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  },
+  fieldHint: {
+    fontSize: '0.75rem',
+    color: '#64748b',
+    margin: '6px 0 0 2px',
   },
   row: {
     display: 'flex',
@@ -677,7 +764,7 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#004a99',
     color: '#ffffff',
     border: 'none',
-    padding: '7px 16px',
+    padding: '8px 18px',
     borderRadius: '6px',
     fontSize: '0.85rem',
     fontWeight: '600',
@@ -800,6 +887,14 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#e2e8f0',
     color: '#334155',
     fontSize: '0.72rem',
+    padding: '2px 6px',
+    borderRadius: '4px',
+  },
+  tagLoc: {
+    backgroundColor: '#dbeafe',
+    color: '#1e40af',
+    fontSize: '0.72rem',
+    fontWeight: '600',
     padding: '2px 6px',
     borderRadius: '4px',
   },
