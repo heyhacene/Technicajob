@@ -19,16 +19,14 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
-
       - name: Prepare App Output
         run: |
           mkdir -p build-output
-          cp -r src/* build-output/ || true
+          # Copie l'ensemble des fichiers du dépôt dans le dossier de sortie
+          find . -maxdepth 1 ! -name '.' ! -name '.git' -exec cp -r {} build-output/ \;
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: technicajob-apk
+          name: technicajob-files
           path: build-output/
