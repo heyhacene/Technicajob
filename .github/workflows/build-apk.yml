@@ -1,0 +1,41 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 Récupération du code
+      uses: actions/checkout@v3
+
+    - name: ⚙️ Configuration de Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: 📦 Installation des dépendances et Build Web
+      run: |
+        cd frontend
+        npm install
+        npm run build
+
+    - name: 📱 Initialisation Capacitor & Build Android
+      run: |
+        cd frontend
+        npx cap init TechnicJob com.technicatome.jobalert --web-dir build
+        npx cap add android
+        npx cap copy android
+        cd android
+        chmod +x gradlew
+        ./gradlew assembleDebug
+
+    - name: 🚀 Sauvegarde de l'APK généré
+      uses: actions/upload-artifact@v3
+      with:
+        name: technicajob-apk
+        path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
