@@ -271,16 +271,16 @@ export default function App() {
   };
 
   // Extraction unique des données
-  const locations = useMemo(() => {
-    return Array.from(new Set(jobs.map((j) => j.location).filter(Boolean))).sort();
+  const locations: string[] = useMemo(() => {
+    return Array.from(new Set(jobs.map((j) => j.location).filter((loc): loc is string => Boolean(loc)))).sort();
   }, [jobs]);
 
-  const contracts = useMemo(() => {
-    return Array.from(new Set(jobs.map((j) => j.contractType).filter(Boolean))).sort();
+  const contracts: string[] = useMemo(() => {
+    return Array.from(new Set(jobs.map((j) => j.contractType).filter((c): c is string => Boolean(c)))).sort();
   }, [jobs]);
 
-  const departments = useMemo(() => {
-    return Array.from(new Set(jobs.map((j) => j.department).filter(Boolean))).sort();
+  const departments: string[] = useMemo(() => {
+    return Array.from(new Set(jobs.map((j) => j.department).filter((d): d is string => Boolean(d)))).sort();
   }, [jobs]);
 
   const matchingJobs = useMemo(() => {
