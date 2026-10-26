@@ -9,12 +9,14 @@ interface JobOffer {
     title: string;
     company: string;
     location: string;
+    contract: string;
     link: string;
     date: string;
+    discovered_at: string;
 }
 
 const DATA_FILE = path.join(__dirname, '../data/jobs.json');
-const TARGET_URL = process.env.TARGET_URL || 'https://example-job-board.com/jobs?q=engineer'; // Replace with real URL
+const TARGET_URL = process.env.TARGET_URL || 'https://www.technicatome.com/nous-rejoindre/nos-offres-demploi/';
 
 function loadHistory(): Record<string, JobOffer> {
     if (!fs.existsSync(DATA_FILE)) {
@@ -39,20 +41,38 @@ async function scrapeJobs(): Promise<JobOffer[]> {
         const $ = cheerio.load(response.data);
         const jobs: JobOffer[] = [];
 
-        // Modify these selectors based on the target website's structure
-        $('.job-card-selector').each((index, element) => { // Replace selector
-            const title = $(element).find('.title-selector').text().trim(); // Replace selector
-            const company = $(element).find('.company-selector').text().trim(); // Replace selector
-            const location = $(element).find('.location-selector').text().trim(); // Replace selector
-            const relativeLink = $(element).find('a').attr('href') || '';
-            const link = relativeLink.startsWith('http') ? relativeLink : new URL(relativeLink, TARGET_URL).toString();
+        $('.job-board__item').each((index, element) => {
+            const dataAttrs = $(element).data();
 
-            // Generate a unique ID (e.g., from the URL or a specific ID attribute)
-            const id = link.split('/').pop() || `job-${index}`;
-            const date = new Date().toISOString();
+            const id = dataAttrs['jobId'] ? String(dataAttrs['jobId']) : '';
+            const title = dataAttrs['title'] ? String(dataAttrs['title']) : $(element).find('.job-board__item-title').text().trim();
+            const contract = dataAttrs['contract'] ? String(dataAttrs['contract']) : $(element).find('.job-board__tag--contract').text().trim();
+            let location = dataAttrs['site'] ? String(dataAttrs['site']) : $(element).find('.job-board__tag--location').text().trim();
+            // Clean up location text like "Aix-en-Provence, fr"
+            location = location.replace(/,\s*fr$/i, '');
 
-            if (title && link) {
-                jobs.push({ id, title, company, location, link, date });
+            let link = dataAttrs['url'] ? String(dataAttrs['url']) : '';
+            if (!link) {
+                const popupContent = $(element).find('.job-board__item-popup-content').html();
+                if(popupContent) {
+                    const popup$ = cheerio.load(popupContent);
+                    link = popup$('.job-board-modal__cta').attr('href') || '';
+                }
+            }
+
+            const scrapedDate = dataAttrs['date'] ? String(dataAttrs['date']) : $(element).find('.job-board__date').text().trim();
+
+            if (title && link && id) {
+                jobs.push({
+                    id,
+                    title,
+                    company: 'TechnicAtome',
+                    location,
+                    contract,
+                    link,
+                    date: scrapedDate, // the relative date text (e.g. "Il y a 2 j.")
+                    discovered_at: new Date().toISOString()
+                });
             }
         });
 
@@ -87,7 +107,6 @@ export async function runScraper() {
     }
 }
 
-// Allow running directly
 if (require.main === module) {
     runScraper().catch(console.error);
 }
