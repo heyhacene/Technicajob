@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">JobWatcher</string>
+    <string name="title_activity_main">JobWatcher</string>
+    <string name="package_name">com.jobwatcher.app</string>
+    <string name="custom_url_scheme">com.jobwatcher.app</string>
+</resources>
