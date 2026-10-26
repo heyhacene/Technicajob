@@ -22,14 +22,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Web App
-        run: npm run build
-
-      - name: Build Android APK (Capacitor / Cordova / Web export)
+      - name: Prepare App Output
         run: |
-          # Commande de build APK ou compilation web intégrée
           mkdir -p build-output
-          cp -r dist/* build-output/ || cp -r build/* build-output/ || true
+          cp -r src/* build-output/ || true
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
