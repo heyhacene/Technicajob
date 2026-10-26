@@ -1,192 +1,205 @@
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect } from 'react';
+import './App.css';
 
-interface JobOffer {
-    id: string;
-    title: string;
-    company: string;
-    location: string;
-    contract: string;
-    link: string;
-    date: string;
-    discovered_at: string;
-    read?: boolean;
+interface Job {
+  id: string;
+  title: string;
+  location: string;
+  contractType: string;
+  department: string;
+  publishedDate: string;
+  url: string;
 }
-
-const DATA_URL = "/jobs.json"
 
 function App() {
-  const [jobs, setJobs] = useState<JobOffer[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [filteredJobs, setFilteredJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  // Filters
-  const [selectedLocation, setSelectedLocation] = useState<string>('');
-  const [selectedContract, setSelectedContract] = useState<string>('');
+  // États pour TOUS vos filtres
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedLocation, setSelectedLocation] = useState('ALL');
+  const [selectedContract, setSelectedContract] = useState('ALL');
+  const [selectedDepartment, setSelectedDepartment] = useState('ALL');
 
-  const fetchJobs = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch(DATA_URL);
-      if (!res.ok) throw new Error('Failed to fetch jobs');
-      const data = await res.json();
+  // État pour les nouvelles offres détectées
+  const [newJobsCount, setNewJobsCount] = useState(0);
 
-      const jobsArray = Object.values(data) as JobOffer[];
-      jobsArray.sort((a, b) => new Date(b.discovered_at).getTime() - new Date(a.discovered_at).getTime());
-
-      setJobs(jobsArray);
-    } catch (err: any) {
-      setError(err.message || 'Error fetching jobs data. Make sure DATA_URL is set.');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Chargement des offres (depuis votre fichier jobs.json synchronisé)
   useEffect(() => {
-    fetchJobs();
+    fetch('/data/jobs.json')
+      .then((res) => res.json())
+      .then((data: Job[]) => {
+        setJobs(data);
+        setFilteredJobs(data);
+        setLoading(false);
+
+        // Vérification des nouveautés par rapport à la dernière visite
+        const lastSeenIds = JSON.parse(localStorage.getItem('seen_jobs') || '[]');
+        if (lastSeenIds.length > 0) {
+          const fresh = data.filter((job) => !lastSeenIds.includes(job.id));
+          setNewJobsCount(fresh.length);
+        }
+
+        // Sauvegarde des IDs actuels comme vus après un court délai ou clic
+        const allIds = data.map((j) => j.id);
+        localStorage.setItem('seen_jobs', JSON.stringify(allIds));
+      })
+      .catch((err) => {
+        console.error('Erreur chargement offres:', err);
+        setLoading(false);
+      });
   }, []);
 
-  const markAsRead = (id: string) => {
-    setJobs(jobs.map(job => job.id === id ? { ...job, read: true } : job));
-  };
+  // Application de TOUS les filtres simultanément
+  useEffect(() => {
+    let result = jobs;
 
-  const filteredJobs = useMemo(() => {
-    return jobs.filter(job => {
-      if (selectedLocation && job.location !== selectedLocation) return false;
-      if (selectedContract && job.contract !== selectedContract) return false;
-      return true;
-    });
-  }, [jobs, selectedLocation, selectedContract]);
+    // Filtre par mot-clé (titre)
+    if (searchTerm.trim() !== '') {
+      result = result.filter((job) =>
+        job.title.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
 
-  const uniqueLocations = useMemo(() => Array.from(new Set(jobs.map(j => j.location).filter(Boolean))), [jobs]);
-  const uniqueContracts = useMemo(() => Array.from(new Set(jobs.map(j => j.contract).filter(Boolean))), [jobs]);
+    // Filtre par Localisation
+    if (selectedLocation !== 'ALL') {
+      result = result.filter((job) => job.location === selectedLocation);
+    }
+
+    // Filtre par Type de Contrat
+    if (selectedContract !== 'ALL') {
+      result = result.filter((job) => job.contractType === selectedContract);
+    }
+
+    // Filtre par Département / Service
+    if (selectedDepartment !== 'ALL') {
+      result = result.filter((job) => job.department === selectedDepartment);
+    }
+
+    setFilteredJobs(result);
+  }, [searchTerm, selectedLocation, selectedContract, selectedDepartment, jobs]);
+
+  // Extraction des listes uniques pour alimenter les menus déroulants de filtres
+  const locations = Array.from(new Set(jobs.map((j) => j.location))).filter(Boolean);
+  const contracts = Array.from(new Set(jobs.map((j) => j.contractType))).filter(Boolean);
+  const departments = Array.from(new Set(jobs.map((j) => j.department))).filter(Boolean);
+
+  if (loading) {
+    <div style={{ padding: '20px', textAlign: 'center', color: '#fff' }}>
+      Chargement des offres TechnicAtome...
+    </div>;
+  }
 
   return (
-    <div className="min-h-screen p-4 max-w-md mx-auto bg-gray-50 pb-20">
-      <header className="mb-4 flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-        <h1 className="text-xl font-bold text-gray-800">Job Watcher</h1>
-        <button
-          onClick={fetchJobs}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-        >
-          Refresh
-        </button>
+    <div style={{ padding: '16px', maxWidth: '600px', margin: '0 auto', fontFamily: 'sans-serif', color: '#333' }}>
+      <header style={{ marginBottom: '20px', textAlign: 'center' }}>
+        <h1 style={{ fontSize: '22px', color: '#004a99', marginBottom: '8px' }}>
+          TechnicAtome Job Alert
+        </h1>
+        {newJobsCount > 0 && (
+          <div style={{ background: '#e6f4ea', color: '#137333', padding: '8px', borderRadius: '6px', fontSize: '14px', marginBottom: '10px' }}>
+            🔔 <strong>{newJobsCount} nouvelle(s) offre(s)</strong> depuis votre dernière visite !
+          </div>
+        )}
+        <p style={{ fontSize: '13px', color: '#666' }}>
+          {filteredJobs.length} offre(s) trouvée(s) sur {jobs.length} totales
+        </p>
       </header>
 
-      {/* Filters */}
-      <div className="mb-6 space-y-3 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-        <h2 className="text-sm font-semibold text-gray-600 mb-2">Filters</h2>
-        <div className="flex gap-2 flex-wrap">
-          <select
-            value={selectedLocation}
-            onChange={(e) => setSelectedLocation(e.target.value)}
-            className="flex-1 min-w-[120px] bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2"
-          >
-            <option value="">All Locations</option>
-            <option value="Aix-en-Provence">Aix-en-Provence</option>
-            <option value="Bordeaux">Bordeaux</option>
-            <option value="Cadarache">Cadarache</option>
-            <option value="Cherbourg">Cherbourg</option>
-            <option value="Saclay">Saclay</option>
-            <option value="Toulon">Toulon</option>
-            {uniqueLocations.filter(l => !['Aix-en-Provence', 'Bordeaux', 'Cadarache', 'Cherbourg', 'Saclay', 'Toulon'].includes(l)).map(loc => (
-               <option key={loc} value={loc}>{loc}</option>
-            ))}
-          </select>
+      {/* Bloc de TOUS les filtres */}
+      <div style={{ background: '#f8f9fa', padding: '12px', borderRadius: '8px', marginBottom: '16px', border: '1px solid #dee2e6' }}>
+        <h3 style={{ fontSize: '15px', marginTop: '0', marginBottom: '10px' }}>Filtres de recherche</h3>
 
-          <select
-            value={selectedContract}
-            onChange={(e) => setSelectedContract(e.target.value)}
-            className="flex-1 min-w-[120px] bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2"
-          >
-            <option value="">All Contracts</option>
-            <option value="CDI">CDI</option>
-            <option value="Stage">Stage</option>
-            {uniqueContracts.filter(c => !['CDI', 'Stage'].includes(c)).map(contract => (
-               <option key={contract} value={contract}>{contract}</option>
-            ))}
-          </select>
+        {/* Recherche par mot-clé */}
+        <div style={{ marginBottom: '10px' }}>
+          <input
+            type="text"
+            placeholder="Rechercher par mot-clé (ex: Sûreté, Projets...)"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Filtre Localisation */}
+          <div style={{ flex: '1', minWidth: '45%' }}>
+            <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Localisation</label>
+            <select
+              value={selectedLocation}
+              onChange={(e) => setSelectedLocation(e.target.value)}
+              style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}
+            >
+              <option value="ALL">Toutes les localisations</option>
+              {locations.map((loc, idx) => (
+                <option key={idx} value={loc}>{loc}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Filtre Type de Contrat */}
+          <div style={{ flex: '1', minWidth: '45%' }}>
+            <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Contrat</label>
+            <select
+              value={selectedContract}
+              onChange={(e) => setSelectedContract(e.target.value)}
+              style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}
+            >
+              <option value="ALL">Tous les contrats</option>
+              {contracts.map((con, idx) => (
+                <option key={idx} value={con}>{con}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Filtre Département / Service */}
+          <div style={{ flex: '1', minWidth: '100%' }}>
+            <label style={{ fontSize: '11px', display: 'block', marginBottom: '4px', fontWeight: 'bold' }}>Domaine / Département</label>
+            <select
+              value={selectedDepartment}
+              onChange={(e) => setSelectedDepartment(e.target.value)}
+              style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}
+            >
+              <option value="ALL">Tous les départements</option>
+              {departments.map((dep, idx) => (
+                <option key={idx} value={dep}>{dep}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
-      {loading && <div className="text-center py-8 text-gray-500">Loading jobs...</div>}
-
-      {error && (
-        <div className="bg-red-50 text-red-500 p-4 rounded-xl mb-6 text-sm text-center border border-red-100">
-          {error}
-        </div>
-      )}
-
-      {!loading && !error && filteredJobs.length === 0 && (
-        <div className="text-center py-12 text-gray-500 bg-white rounded-xl shadow-sm border border-gray-100">
-          <svg className="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-          </svg>
-          <p>No jobs found.</p>
-        </div>
-      )}
-
-      <div className="space-y-4">
-        {filteredJobs.map(job => (
-          <div
-            key={job.id}
-            className={`bg-white p-5 rounded-xl shadow-sm border-l-4 transition-all ${job.read ? 'border-gray-200 opacity-75' : 'border-blue-500 ring-1 ring-blue-50'}`}
-          >
-            <div className="flex justify-between items-start mb-3">
-              <h2 className="text-lg font-bold text-gray-800 line-clamp-2 leading-tight">
-                {job.title}
-              </h2>
-              {!job.read && (
-                <span className="bg-blue-100 text-blue-700 text-xs px-2.5 py-1 rounded-full font-bold ml-3 shrink-0">
-                  New
-                </span>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-2 mb-4">
-               {job.contract && (
-                 <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100">
-                    {job.contract}
-                 </span>
-               )}
-               {job.location && (
-                 <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
-                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                    {job.location}
-                 </span>
-               )}
-               {job.date && (
-                  <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
-                    {job.date}
-                 </span>
-               )}
-            </div>
-
-            <div className="flex gap-2">
-              <a
-                href={job.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => markAsRead(job.id)}
-                className="flex-1 bg-gray-900 text-white text-center py-2.5 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors shadow-sm"
-              >
-                View & Apply
-              </a>
-              {!job.read && (
-                <button
-                  onClick={() => markAsRead(job.id)}
-                  className="bg-white text-gray-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 border border-gray-200 transition-colors shadow-sm"
+      {/* Liste des offres filtrées */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {filteredJobs.length === 0 ? (
+          <p style={{ textAlign: 'center', color: '#777', padding: '20px' }}>Aucune offre ne correspond à vos filtres actuels.</p>
+        ) : (
+          filteredJobs.map((job) => (
+            <div key={job.id} style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px', padding: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+              <h2 style={{ fontSize: '15px', margin: '0 0 6px 0', color: '#004a99' }}>{job.title}</h2>
+              <div style={{ fontSize: '12px', color: '#555', display: 'flex', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                <span>📍 {job.location}</span>
+                <span>📄 {job.contractType}</span>
+                <span>🏷️ {job.department}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+                <span style={{ fontSize: '11px', color: '#888' }}>Publié le : {job.publishedDate}</span>
+                <a
+                  href={job.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ background: '#004a99', color: '#fff', padding: '6px 12px', borderRadius: '4px', textDecoration: 'none', fontSize: '12px', fontWeight: 'bold' }}
                 >
-                  Mark Read
-                </button>
-              )}
+                  Voir l'offre →
+                </a>
+              </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
