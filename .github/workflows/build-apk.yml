@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-apk:
-    name: Build Debug APK
+    name: Build & Release Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -54,39 +54,58 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x frontend/android/gradlew
 
-      - name: Build Android Debug APK
+      - name: Build Android APK (Release)
         working-directory: frontend/android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleRelease --no-daemon
 
-      - name: Prepare APK for Release
+      - name: Sign & Align APK
         run: |
-          cp frontend/android/app/build/outputs/apk/debug/app-debug.apk TechnicAtome-Jobs.apk
+          UNSIGNED_APK="frontend/android/app/build/outputs/apk/release/app-release-unsigned.apk"
+          if [ ! -f "$UNSIGNED_APK" ]; then
+            UNSIGNED_APK="frontend/android/app/build/outputs/apk/debug/app-debug.apk"
+          fi
 
-      - name: Upload Debug APK Artifact
+          APKSIGNER=$(find $ANDROID_SDK_ROOT/build-tools $ANDROID_HOME/build-tools /usr/local/lib/android/sdk/build-tools -name apksigner 2>/dev/null | sort -V | tail -n 1)
+          ZIPALIGN=$(find $ANDROID_SDK_ROOT/build-tools $ANDROID_HOME/build-tools /usr/local/lib/android/sdk/build-tools -name zipalign 2>/dev/null | sort -V | tail -n 1)
+
+          if [ -n "$ZIPALIGN" ] && ! $ZIPALIGN -c 4 "$UNSIGNED_APK"; then
+            $ZIPALIGN -p -f 4 "$UNSIGNED_APK" aligned.apk
+            UNSIGNED_APK="aligned.apk"
+          fi
+
+          KEYSTORE="keystore/app.keystore"
+          $APKSIGNER sign \
+            --ks "$KEYSTORE" \
+            --ks-key-alias "keonote" \
+            --ks-pass "pass:keonotepassword" \
+            --key-pass "pass:keonotepassword" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out TechnicAtome-Jobs.apk \
+            "$UNSIGNED_APK"
+
+          $APKSIGNER verify --verbose TechnicAtome-Jobs.apk
+
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
+          name: TechnicAtome-Jobs-APK
           path: TechnicAtome-Jobs.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
 
-      - name: Create GitHub Release (Direct Download)
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: "Veille TechnicAtome v1.0.${{ github.run_number }}"
           body: |
-            ### 📱 Application Veille Offres TechnicAtome
-            Cliquez directement sur **TechnicAtome-Jobs.apk** ci-dessous pour installer l'application sur votre smartphone Android.
-
-            - **Lien direct APK permanent** : https://github.com/heyhacene/Technicajob/releases/latest/download/TechnicAtome-Jobs.apk
-            - Suivi en temps réel des offres d'emploi TechnicAtome
-            - Filtres par mot-clé, lieu, contrat et domaine
-            - Alerte des nouvelles offres non lues
+            ### 📱 Veille Offres TechnicAtome
+            Application signée prête pour l'installation sur smartphones et tablettes Android.
           files: |
             TechnicAtome-Jobs.apk
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
