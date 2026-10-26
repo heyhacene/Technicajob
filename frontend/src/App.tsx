@@ -12,7 +12,7 @@ interface JobOffer {
     read?: boolean;
 }
 
-const DATA_URL = "https://raw.githubusercontent.com/your-username/your-repo/main/data/jobs.json";
+const DATA_URL = "/jobs.json"
 
 function App() {
   const [jobs, setJobs] = useState<JobOffer[]>([]);
