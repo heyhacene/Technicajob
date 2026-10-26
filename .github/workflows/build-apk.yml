@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     name: Build Debug APK
@@ -55,10 +58,35 @@ jobs:
         working-directory: frontend/android
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Upload Debug APK
+      - name: Prepare APK for Release
+        run: |
+          cp frontend/android/app/build/outputs/apk/debug/app-debug.apk TechnicAtome-Jobs.apk
+
+      - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
+          path: TechnicAtome-Jobs.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Create GitHub Release (Direct Download)
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "Veille TechnicAtome v1.0.${{ github.run_number }}"
+          body: |
+            ### 📱 Application Veille Offres TechnicAtome
+            Cliquez directement sur **TechnicAtome-Jobs.apk** ci-dessous pour installer l'application sur votre smartphone Android.
+
+            - **Lien direct APK permanent** : https://github.com/heyhacene/Technicajob/releases/latest/download/TechnicAtome-Jobs.apk
+            - Suivi en temps réel des offres d'emploi TechnicAtome
+            - Filtres par mot-clé, lieu, contrat et domaine
+            - Alerte des nouvelles offres non lues
+          files: |
+            TechnicAtome-Jobs.apk
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
