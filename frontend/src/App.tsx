@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
 export interface Job {
