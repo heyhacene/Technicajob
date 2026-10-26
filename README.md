@@ -1,13 +1,15 @@
 # Job Watcher
 
-An automated job scraper and mobile-friendly Android dashboard (APK). It periodically scrapes a target job board using GitHub Actions, detects new postings, sends Telegram alerts, and lets you view the feed on an Android application.
+An automated job scraper and mobile-friendly Android dashboard (APK) specifically configured for [TechnicAtome's Job Board](https://www.technicatome.com/nous-rejoindre/nos-offres-demploi/).
+
+It periodically scrapes the job board using GitHub Actions, detects new postings, sends Telegram alerts to multiple users, and lets you view the feed on an Android application with built-in filters.
 
 ## 🚀 Architecture
 
 1. **The Watcher (Backend & Automation):**
-   - A Node.js TypeScript script (`scripts/scraper.ts`) runs periodically via a GitHub Actions workflow (`.github/workflows/scraper.yml`).
-   - It scrapes a target job board website, finds job postings using Cheerio, and compares them with the historical data saved in `data/jobs.json`.
-   - If new jobs are found, it sends a Telegram alert and commits the updated `jobs.json` to the repository.
+   - A Node.js TypeScript script (`scripts/scraper.ts`) runs every 2 hours via a GitHub Actions workflow (`.github/workflows/scraper.yml`).
+   - It scrapes the TechnicAtome job board website, finds job postings, and compares them with the historical data saved in `data/jobs.json`.
+   - If new jobs are found, it sends a Telegram alert to a configured list of users and commits the updated `jobs.json` to the repository.
 
 2. **The Dashboard (Frontend & APK):**
    - A React (Vite) frontend with Tailwind CSS designed for mobile devices.
@@ -23,27 +25,33 @@ An automated job scraper and mobile-friendly Android dashboard (APK). It periodi
    - Go to your repository **Settings** -> **Actions** -> **General**.
    - Under **Workflow permissions**, select **Read and write permissions**.
 
-### 2. Environment Variables & Secrets
+### 2. Setting Up Telegram Notifications for Multiple Users
 
-You need to set up the following [Repository Secrets](https://docs.github.com/en/actions/security-guides/encrypted-secrets) for the GitHub Actions scraper:
+To send alerts to yourself and your friends, you need a Telegram Bot and the Chat IDs for everyone who wants to receive notifications.
 
-- `TARGET_URL`: The URL of the job board you want to scrape (e.g., `https://example-job-board.com/jobs?q=engineer`).
-- `TELEGRAM_BOT_TOKEN`: The token for your Telegram Bot (created via [@BotFather](https://t.me/botfather)).
-- `TELEGRAM_CHAT_ID`: Your personal Telegram chat ID (can be found via [@userinfobot](https://t.me/userinfobot)).
+**Step A: Create the Bot**
+1. Open Telegram and search for `@BotFather`.
+2. Send the command `/newbot` and follow the instructions to create your bot.
+3. BotFather will give you a **Bot Token** (e.g., `123456789:ABCdefGHIjklMNOpqrSTUvwxYZ`). Save this.
 
-### 3. Customize the Scraper
+**Step B: Get Chat IDs for You and Your Friends**
+Each user must do the following to get their unique Chat ID:
+1. Open Telegram and search for the bot you just created.
+2. Click **Start** to initiate a conversation with the bot (this is required so the bot is allowed to message them).
+3. Search for the `@userinfobot` on Telegram and click **Start**. It will reply with an `Id` number (e.g., `987654321`).
+4. Collect the IDs from all your friends.
 
-The target job board might have a different HTML structure. You must adapt the Cheerio CSS selectors inside `scripts/scraper.ts`:
+**Step C: Add GitHub Secrets**
+Go to your GitHub repository **Settings** -> **Secrets and variables** -> **Actions** -> **New repository secret**:
 
-```typescript
-// scripts/scraper.ts -> scrapeJobs() function
-$('.job-card-selector').each((index, element) => {
-    const title = $(element).find('.title-selector').text().trim();
-    const company = $(element).find('.company-selector').text().trim();
-    // ...
-```
+1. **Secret Name:** `TARGET_URL`
+   - **Secret Value:** `https://www.technicatome.com/nous-rejoindre/nos-offres-demploi/`
+2. **Secret Name:** `TELEGRAM_BOT_TOKEN`
+   - **Secret Value:** *(The token you got from BotFather)*
+3. **Secret Name:** `TELEGRAM_CHAT_IDS`
+   - **Secret Value:** *(A comma-separated list of Chat IDs, e.g., `111111111,222222222,333333333`)*
 
-### 4. Configure the App Data URL
+### 3. Configure the App Data URL
 
 In `frontend/src/App.tsx`, update the `DATA_URL` to point to your repository's raw `jobs.json` file:
 
@@ -58,7 +66,7 @@ const DATA_URL = "https://raw.githubusercontent.com/<YOUR-USERNAME>/<YOUR-REPO>/
 1. Make sure you update the `DATA_URL` and push the changes to `main`.
 2. The `Build and Release Android APK` GitHub Action will run automatically.
 3. Once the workflow completes, go to the Actions tab, click the latest run, and scroll down to the **Artifacts** section to download `app-debug.apk`.
-4. Transfer the APK to your Android phone, enable installing from unknown sources, and install it.
+4. Send the `app-debug.apk` file to your Android phone (and your friends' phones), enable installing from unknown sources, and install it.
 
 ## 💻 Running Locally for Development
 
@@ -71,7 +79,7 @@ const DATA_URL = "https://raw.githubusercontent.com/<YOUR-USERNAME>/<YOUR-REPO>/
    ```bash
    cp .env.example .env
    ```
-   *Fill in your target URL and Telegram credentials.*
+   *Fill in your target URL, Bot Token, and Chat IDs.*
 
 3. Run the scraper manually:
    ```bash
